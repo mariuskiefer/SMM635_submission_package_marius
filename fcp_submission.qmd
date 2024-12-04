@@ -1,0 +1,280 @@
+---
+title: Data Vis FCP 
+author: Marius Kiefer
+date: last-modified
+abstract-title: Abstract
+abstract: Final Course Project in SMM635 Data Visualization, Student - Marius Kiefer, 2024
+warning: false
+format: 
+  html:
+    code-fold: true
+    code-tools: true
+    toc: true
+    toc-title: Table of Contents 
+    toc-depth: 2
+    toc-location: right
+    number-sections: true
+    citations-hover: false
+    footnotes-hover: false
+    crossrefs-hover: false
+    theme: united 
+    fig-width: 9
+    fig-height: 6
+  #pdf:
+  #  documentclass: scrartcl
+  #  papersize: letter
+---
+### Install missing libraries
+The first step to recreate the analysis is to install the package sf in R into the SMM635 conda environment. This can be done by using "conda install conda-forge::r-sf".
+
+### Import libraries and load data
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+### Load EO50 data
+EO50.csv contains all the information, we need to extract. 
+
+```{r}
+e050 = read_csv("data/e050.csv")
+```
+
+### Load map data
+The [map](https://data.cityofnewyork.us/City-Government/Borough-Boundaries/tqmj-j8zm){.external target="_blank"} data used for this analysis can be found on the City of New York webpage. The geospatial data was published by the Department of City Planing (DCP) in 2013.
+
+```{r}
+#| output: false
+json_map <- st_read("data/Borough Boundaries.geojson")
+```
+
+### Data manipulation
+In this part, small changes within the data are made. I am deleting entires, that are not within the NYC area. I simply apply a filter looking fo NA values. Additionally missing values for "Longitude" are removed to prevent errors while creating plots.
+For the first plot I need to identify each year in which the certificate was obtained. That is necessary to create year facets in plot 1.
+
+```{r}
+# getting rid of all non NYC data and missing Long entries (NA values for borough and Longitude)
+e050 <- e050 %>%
+  filter(!is.na(Borough), !is.na(Longitude))
+```
+
+
+```{r}
+# converting e050 to sf object to ensure same geo type with json_map
+e050_sf <- st_as_sf(e050, coords = c("Longitude", "Latitude"), crs = 4326)
+```
+
+
+```{r}
+#| output: false
+# making sure that both geom data uses the same CRS
+st_crs(json_map)
+st_crs(e050_sf)
+```
+
+
+```{r}
+# converting to Date format
+e050_sf$`EO50 Approval Date` <- as.POSIXct(e050_sf$`EO50 Approval Date`, format = "%m/%d/%Y %I:%M:%S %p")
+
+# extracting the year 
+e050_sf$year <- format(e050_sf$`EO50 Approval Date`, "%Y")
+```
+
+### Creating the first plot
+The first plot shows all the locations of businesses complying with EO50 and the year in which they obtained the certificate. 
+One map of NYC for each year. Colors of points indicate in which borough the company is located in.
+
+```{r}
+#| output: false
+ggplot(data = json_map) +
+  # adding the map to the plot
+  geom_sf(fill = "grey95", color = "grey50", alpha = 0.5) +
+  # adding points from e050_sf
+  geom_sf(data = e050_sf, aes(color = Borough), size = 0.4, alpha = 0.8) +
+  # Albers Equal Area projection
+  coord_sf(crs = st_crs(5070)) +
+  # setting font
+  theme_minimal(base_family = "Times New Roman") +  # Apply Times New Roman font
+  # customizing the theme
+  theme(
+    
+    legend.position = "bottom",   # customizing legend 
+    legend.title = element_text(size = 14, face = "bold"), 
+    legend.text = element_text(size = 12),  
+    legend.spacing.x = unit(0.5, "cm"),  
+    legend.direction = "horizontal",   
+    panel.grid.major = element_blank(),  # removing major gridlines
+    panel.grid.minor = element_blank(),  # removing minor gridlines
+    axis.text.x = element_blank(),      # removing x-axis text
+    axis.text.y = element_blank(),       # removeing y-axis text
+    strip.text = element_text(size = 14, face = "bold"),  # year label
+    strip.background = element_blank(),  # no background for facet labels
+    plot.margin = margin(t = 20, r = 10, b = 30, l = 10), # plot spacing
+    plot.title = element_text(size = 18, face = "bold", hjust = 0, margin = margin(b = 10)), # customize title
+    plot.subtitle = element_text(size = 14, hjust = 0, color = "grey40", margin = margin(b = 20)), # customize subtitle
+    plot.caption = element_text(size = 12, hjust = 1, margin = margin(t = 10)) # caption
+  ) +
+  # custom legend title
+  labs(
+    title = "Distribution of EO50 Certificates in New York City",
+    subtitle = "By Borough and Year",
+    color = "Boroughs",
+    caption = "Figure 1: EO50 certificate distribution visualized by boroughs and years."
+  ) +
+  # custom colors for points, accessible colors used
+  scale_color_manual(
+    values = c(
+      "MANHATTAN" = "#0072B2",
+      "BROOKLYN" = "#E69F00",
+      "QUEENS" = "#009E73",
+      "BRONX" = "#CC79A7",
+      "STATEN IS" = "#D55E00"
+    )
+  ) +
+  # increasing legend point size 
+  guides(
+    color = guide_legend(
+      keysize = 2, 
+      override.aes = list(size = 4) 
+    )
+  ) +
+  # facet wrap by year with labels at the top
+  facet_wrap(~ year, strip.position = "top")
+```
+
+```{r}
+# saving the first plot for better quality
+ggsave(
+  filename = "plots/nyc_plot_high_res.png",  
+  plot = last_plot(),                 
+  dpi = 300, # 300 dots per inch)
+  width = 9, # inches                        
+  height = 11, # inches                         
+  bg = "white" # important to have the same colors as plot output 
+)
+```
+
+![Certificate Distribution](plots/nyc_plot_high_res.png)
+
+### Loading business population data for second 
+External [data](https://data.cityofnewyork.us/Business/SBS-Certified-Business-List/ci93-uc8s/about_data){.external target="_blank"} was used to show the business population in NYC. 
+
+```{r}
+business_population = read_csv("data/SBS_Certified_Business_List_20241202.csv")
+```
+
+
+```{r}
+# filter only rows that have a borough assigned (getting rid of non nyc data)
+business_population <- business_population %>%
+  filter(!is.na(Borough))
+```
+
+### Relative differences
+I calculated the relative difference between the business distribution and the EO50 distribution in NYC for each borough.
+
+```{r}
+# calculating totals of businesses and eo50 certificate businesses in nyc 
+total_dist_busi = nrow(business_population[business_population$Borough == "MANHATTAN", ]) + nrow(business_population[business_population$Borough == "BRONX", ]) + nrow(business_population[business_population$Borough == "QUEENS", ]) + nrow(business_population[business_population$Borough == "BROOKLYN", ]) + nrow(business_population[business_population$Borough == "STATEN IS", ])
+
+total_dist_eo50 = nrow(e050_sf[e050_sf$Borough == "MANHATTAN", ])+ nrow(e050_sf[e050_sf$Borough == "BRONX", ]) + nrow(e050_sf[e050_sf$Borough == "QUEENS", ]) + nrow(e050_sf[e050_sf$Borough == "STATEN IS", ]) + nrow(e050_sf[e050_sf$Borough == "BROOKLYN", ])
+```
+
+
+```{r}
+# percentages of businesses in nyc 
+busi_perc_man = nrow(business_population[business_population$Borough == "MANHATTAN", ])/total_dist_busi
+busi_perc_bron = nrow(business_population[business_population$Borough == "BRONX", ])/total_dist_busi
+busi_perc_que = nrow(business_population[business_population$Borough == "QUEENS", ])/total_dist_busi
+busi_perc_stat = nrow(business_population[business_population$Borough == "STATEN IS", ])/total_dist_busi
+busi_perc_brok = nrow(business_population[business_population$Borough == "BROOKLYN", ])/total_dist_busi
+```
+
+
+```{r}
+# percentages of eo50 businesses in nyc 
+eo50_perc_man = nrow(e050_sf[e050_sf$Borough == "MANHATTAN", ])/total_dist_eo50
+eo50_perc_bron = nrow(e050_sf[e050_sf$Borough == "BRONX", ])/total_dist_eo50
+eo50_perc_que = nrow(e050_sf[e050_sf$Borough == "QUEENS", ])/total_dist_eo50
+eo50_perc_stat = nrow(e050_sf[e050_sf$Borough == "STATEN IS", ])/total_dist_eo50
+eo50_perc_brok = nrow(e050_sf[e050_sf$Borough == "BROOKLYN", ])/total_dist_eo50
+```
+
+
+```{r}
+# relative difference (Percentage Change)
+dif_man = ((eo50_perc_man - busi_perc_man)/busi_perc_man) * 100
+dif_bron = ((eo50_perc_bron - busi_perc_bron)/busi_perc_bron) * 100
+dif_que = ((eo50_perc_que - busi_perc_que)/busi_perc_que) * 100
+dif_stat = ((eo50_perc_stat - busi_perc_stat)/busi_perc_stat) * 100
+dif_brok = ((eo50_perc_brok - busi_perc_brok)/busi_perc_brok) * 100
+
+```
+
+
+```{r}
+# storing the relative differences in map dataframe
+json_map_plot2 = json_map
+
+json_map_plot2$rela_diff[json_map_plot2$boro_name == "Manhattan"] = dif_man
+json_map_plot2$rela_diff[json_map_plot2$boro_name == "Bronx"] = dif_bron
+json_map_plot2$rela_diff[json_map_plot2$boro_name == "Queens"] = dif_que
+json_map_plot2$rela_diff[json_map_plot2$boro_name == "Staten Island"] = dif_stat
+json_map_plot2$rela_diff[json_map_plot2$boro_name == "Brooklyn"] = dif_brok
+
+```
+
+
+### Creating the second plot
+The second plot shows the relative differences between business population and EO50 certificates.
+
+```{r}
+#| output: false
+ggplot(data = json_map_plot2) +
+  # load map into plot
+  geom_sf(aes(fill = rela_diff), color = "grey50", alpha = 0.7) +
+  # customizing the color grading, accessible colors used
+  scale_fill_gradient2(
+    low = "orange",  
+    high = "blue",  
+    mid = "white",  
+    midpoint = 0,  # no relative difference 
+    name = "Relative Difference"
+  ) +
+  # customizing the theme
+  theme_minimal(base_family = "Times New Roman") +  
+  theme(
+    legend.position = c(0.11,.85),          
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0),
+    plot.subtitle = element_text(size = 14, color = "grey40", hjust = 0),
+    plot.margin = margin(t = 20, r = 10, b = 30, l = 10),
+    plot.caption = element_text(size = 12)
+  ) +
+  # adding title, subtitle, and caption
+  labs(
+    title = "Relative Difference: EO50 Certificates vs. Business Population",
+    subtitle = "Boroughs with higher relative difference have more EO50 certificates compared to business population",
+    caption = "Figure 2: Visualizing the relative distribution of EO50 certificates by borough."
+  )
+```
+
+```{r}
+# saving the second plot
+ggsave(
+  filename = "plots/nyc_plot2.png",  
+  plot = last_plot(),                 
+  dpi = 300,                          
+  width = 9,                         
+  height = 9,                         
+  bg = "white"
+)
+```
+
+![Relative Differences](plots/nyc_plot2.png)
